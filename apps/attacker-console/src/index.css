@@ -1,0 +1,54 @@
+@import '../../shared/theme.css';
+
+body { background: #090d0b; }
+
+.console-app { min-height: 100vh; padding: var(--space-3); max-width: 1400px; margin: 0 auto; }
+
+.console-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: var(--space-3); padding-bottom: var(--space-2);
+  border-bottom: 1px solid rgba(47, 221, 143, 0.15);
+}
+
+.console-title { font-family: 'JetBrains Mono', monospace; }
+.console-title span { color: var(--accent-primary); }
+
+.target-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  padding: 8px 14px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.scenario-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-2); }
+
+.scenario-card {
+  background: var(--bg-elevated);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  box-shadow: 4px 4px 8px var(--shadow-dark);
+  transition: all 0.15s;
+}
+.scenario-card:hover { border-color: rgba(47, 221, 143, 0.3); }
+.scenario-card.selected {
+  border-color: var(--accent-primary);
+  box-shadow: inset 3px 3px 6px var(--shadow-dark), 0 0 0 1px var(--accent-primary);
+}
+.scenario-card .cat { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.1em; }
+.scenario-card .name { font-weight: 600; margin-top: 4px; }
+
+.login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-box { width: 100%; max-width: 420px; }
+
+.status-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; background: var(--bg-elevated);
+  border-radius: var(--radius-sm); margin-bottom: var(--space-2);
+  font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+}

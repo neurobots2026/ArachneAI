@@ -1,0 +1,14 @@
+{
+  "name": "arachneai",
+  "private": true,
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8001",
+    "dev:college": "cd sites/college-site && npm run dev",
+    "dev:target": "cd sites/college-site && npm run dev",
+    "dev:attacker": "cd sites/attacker-console && npm run dev",
+    "dev:dashboard": "cd sites/security-dashboard && npm run dev",
+    "install:apps": "cd sites/college-site && npm install && cd ../attacker-console && npm install && cd ../security-dashboard && npm install",
+    "build:apps": "cd sites/college-site && npm run build && cd ../attacker-console && npm run build && cd ../security-dashboard && npm run build"
+  }
+}

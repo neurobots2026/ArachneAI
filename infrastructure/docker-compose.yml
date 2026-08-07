@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: sqlite:////data/arachneai.db
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      BACKEND_URL: http://backend:8001
+      TARGET_APP_URL: http://college-site:3000
+    volumes:
+      - arachne_data:/data
+      - ../reports:/reports
+
+  college-site:
+    build: ../sites/college-site
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:8001/api/v1/target
+    depends_on:
+      - backend
+
+  attacker-console:
+    build: ../sites/attacker-console
+    ports:
+      - "3001:3001"
+    environment:
+      VITE_API_URL: http://localhost:8001/api/v1
+    depends_on:
+      - backend
+
+  security-dashboard:
+    build: ../sites/security-dashboard
+    ports:
+      - "3002:3002"
+    environment:
+      VITE_API_URL: http://localhost:8001
+    depends_on:
+      - backend
+
+volumes:
+  arachne_data:
