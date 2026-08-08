@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -6,6 +8,7 @@ from app.models.incident import Incident
 from app.models.organization import Organization
 from app.models.telemetry import TelemetryEvent
 from app.services import dashboard_service
+from app.utils.helpers import utc_now
 
 
 def test_dashboard_status_uses_incident_state():
@@ -25,7 +28,7 @@ def test_dashboard_status_uses_incident_state():
         user_agent="test-agent",
         endpoint="/login",
         http_method="POST",
-        timestamp=__import__("datetime").datetime.utcnow(),
+        timestamp=utc_now().replace(tzinfo=None),
         session_id="session-1",
         raw_metadata={},
     )
@@ -41,14 +44,22 @@ def test_dashboard_status_uses_incident_state():
         confidence_score=0.9,
         status="investigating",
         ai_reasoning="test",
+        created_at=utc_now().replace(tzinfo=None) - timedelta(seconds=20),
     )
     session.add(incident)
     session.commit()
 
     status = dashboard_service.get_status(session, org.id)
 
-    assert status.state == "investigating"
+    assert status.state == "critical"
     assert status.open_incidents == 1
     assert status.recent_activity[0].description.startswith("Broken Auth")
+
+    incident.created_at = utc_now().replace(tzinfo=None) - timedelta(seconds=2)
+    session.commit()
+    alert_status = dashboard_service.get_status(session, org.id)
+    assert alert_status.state == "alert"
+    assert alert_status.deception_response.honeytoken_state == "triggered"
+    assert alert_status.deception_response.honeypot_state == "deployed"
 
     session.close()

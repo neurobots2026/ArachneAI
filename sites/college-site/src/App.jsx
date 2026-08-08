@@ -1,23 +1,113 @@
-import { useEffect, useState } from 'react';
-import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { api, getToken, setToken } from './api';
+import { LoadingPanel, ScrollToTop, SiteFooter, SiteHeader } from './components/SiteChrome';
+import Home from './pages/Home';
+import {
+  AboutPage,
+  AcademicsPage,
+  AdmissionsPage,
+  CampusLifePage,
+  DeveloperResourcesPage,
+  FacultyPage,
+  NotFoundPage,
+} from './pages/PublicPages';
+import AuthPage from './pages/AuthPage';
+import {
+  PortalAssignments,
+  PortalCourses,
+  PortalDashboard,
+  PortalFinancialAid,
+  PortalProfile,
+  PortalResources,
+} from './pages/PortalPages';
+import AdminPage from './pages/AdminPage';
 
-const programs = ['Computer Science', 'Business Administration', 'Nursing', 'Psychology', 'Environmental Science', 'Education', 'Biology', 'English'];
-function Header({ user, logout }) { return <><header><Link className="brand" to="/">Crestwood <i>College</i></Link><nav><NavLink to="/about">About</NavLink><NavLink to="/academics">Academics</NavLink><NavLink to="/admissions">Admissions</NavLink><NavLink to="/campus-life">Campus Life</NavLink><NavLink to="/faculty">Faculty</NavLink><NavLink to="/developer-resources">IT resources</NavLink>{user ? <><NavLink to="/portal/dashboard">Student Portal</NavLink>{user.role === 'admin' && <NavLink to="/admin">Admin</NavLink>}<button onClick={logout}>Sign out</button></> : <NavLink className="portal-link" to="/login">Portal login</NavLink>}</nav></header></> }
-function Home() { const [news, setNews] = useState([]); useEffect(() => { api.news().then(setNews).catch(() => {}); }, []); return <><section className="hero"><div><span className="kicker">Est. 1894 · Northbridge, Vermont</span><h1>Learn boldly.<br/><em>Live generously.</em></h1><p>Crestwood is a close-knit liberal arts college preparing curious people to do meaningful work in a changing world.</p><Link className="button gold" to="/admissions">Begin your application</Link></div><div className="hero-stat"><b>4,200</b><span>students finding their path</span><b>14:1</b><span>student–faculty ratio</span></div></section><section className="split intro"><p className="kicker">Why Crestwood</p><h2>A college with room to grow in every direction.</h2><p>Here, rigorous study meets mentorship, service, and a campus small enough to know your name. Our programs connect ideas to practice from the first semester.</p></section><section><div className="section-head"><h2>From campus</h2><Link to="/academics">Explore academics →</Link></div><div className="cards">{news.map(n => <article className="news" key={n.title}><span>{n.date}</span><h3>{n.title}</h3><p>{n.summary}</p></article>)}</div></section></> }
-function About() { return <Page title="A rooted, forward-looking community" eyebrow="About Crestwood"><p>For more than a century, Crestwood College has paired a broad education with a practical ethic: learn carefully, listen generously, and leave every place stronger than you found it.</p><div className="cards"><article><h3>Our mission</h3><p>We cultivate thoughtful graduates ready to contribute with skill, integrity, and imagination.</p></article><article><h3>Accreditation</h3><p>Crestwood is accredited by the New England Commission of Higher Education.</p></article><article><h3>Our place</h3><p>Our wooded 140-acre campus sits minutes from downtown Northbridge and Lake Alden.</p></article></div></Page> }
-function Academics() { const [items, setItems] = useState([]); useEffect(()=>api.programs().then(setItems).catch(()=>setItems(programs.map(name=>({name, description:'A focused, mentor-led course of study.', duration:'4 years'})))),[]); return <Page title="Programs built around questions worth asking" eyebrow="Academics"><div className="cards programs">{items.map(p=><article key={p.name}><span>{p.duration}</span><h3>{p.name}</h3><p>{p.description}</p><Link to="/admissions">Learn more →</Link></article>)}</div></Page> }
-function Admissions() { const [done,setDone]=useState(false), [form,setForm]=useState({name:'',email:'',program:programs[0],message:''}); async function send(e){e.preventDefault();await api.admissions(form);setDone(true)} return <Page title="Your next chapter starts here" eyebrow="Admissions"><div className="admission"><div><h3>Fall 2026 applications</h3><p>Applications are reviewed on a rolling basis. Tell us what you hope to study and a counselor will be in touch.</p><ul><li>Completed online application</li><li>Secondary-school transcript</li><li>One teacher recommendation</li></ul></div>{done?<div className="confirmation"><h3>We received your application.</h3><p>Thank you—an admissions counselor will contact you within five business days.</p></div>:<form onSubmit={send}><label>Name<input required onChange={e=>setForm({...form,name:e.target.value})}/></label><label>Email<input type="email" required onChange={e=>setForm({...form,email:e.target.value})}/></label><label>Program<select onChange={e=>setForm({...form,program:e.target.value})}>{programs.map(p=><option key={p}>{p}</option>)}</select></label><label>What interests you?<textarea onChange={e=>setForm({...form,message:e.target.value})}/></label><button className="button gold">Submit application</button></form>}</div></Page> }
-function Campus() { return <Page title="A campus that feels like home" eyebrow="Campus life"><div className="photo-band"><div><b>70+</b><span>student organizations</span></div><div><b>18</b><span>NCAA Division III teams</span></div><div><b>100%</b><span>first-year housing</span></div></div><div className="cards"><article><h3>Life outside class</h3><p>Perform with a choir, publish with the student paper, build with the robotics club, or volunteer with a Northbridge partner.</p></article><article><h3>Living at Crestwood</h3><p>Residence halls are designed around welcoming common spaces and caring residential staff.</p></article><article><h3>In the region</h3><p>Hike, paddle, explore cafés, and take internships across a vibrant New England corridor.</p></article></div></Page> }
-function Faculty() { const [items,setItems]=useState([]); useEffect(()=>api.faculty().then(setItems).catch(()=>{}),[]); return <Page title="Teachers, mentors, collaborators" eyebrow="Faculty directory"><div className="faculty">{items.map(f=><article key={f.name}><div className="avatar">{f.initials}</div><small>{f.department}</small><h3>{f.name}</h3><p>{f.bio}</p></article>)}</div></Page> }
-function Developer() { const [tools,setTools]=useState([]); useEffect(()=>api.developer().then(d=>setTools(d.tools)).catch(()=>{}),[]); return <Page title="Technology resources" eyebrow="IT helpdesk"><p>Information for students, staff, and approved technology partners. For account help, contact IT Service Desk at help@crestwood.edu.</p><div className="developer">{tools.map(t=><article key={t.name}><span>Internal developer package</span><h3>{t.name}</h3><code>{t.registry}</code><p>Current version: {t.version}</p></article>)}</div></Page> }
-function Login({ onLogin }) { const nav=useNavigate(), [mode,setMode]=useState('login'),[error,setError]=useState(''),[form,setForm]=useState({name:'',email:'student1@crestwood.edu',password:'Student2024!',major:'Computer Science'}); async function submit(e){e.preventDefault();try { const result=mode==='login'?await api.login(form.email,form.password):await api.register(form);setToken(result.access_token);await onLogin();nav('/portal/dashboard')} catch(err){setError(err.message)} } return <Page title={mode==='login'?'Welcome back':'Create your Crestwood account'} eyebrow="Student portal"><form className="account" onSubmit={submit}>{mode==='register'&&<><label>Name<input required onChange={e=>setForm({...form,name:e.target.value})}/></label><label>Major<input required onChange={e=>setForm({...form,major:e.target.value})}/></label></>}<label>Email<input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label><label>Password<input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label>{error&&<p className="error">{error}</p>}<button className="button">{mode==='login'?'Sign in':'Register'}</button><button type="button" className="text-button" onClick={()=>setMode(mode==='login'?'register':'login')}>{mode==='login'?'Need an account? Register':'Already have an account? Sign in'}</button></form></Page> }
-function Portal({ user }) { if(!user)return <Navigate to="/login"/>; const [data,setData]=useState(null); useEffect(()=>api.dashboard().then(setData).catch(()=>{}),[]); return <PortalLayout user={user}><h1>Good morning, {user.name.split(' ')[0]}.</h1><p className="muted">Here is your academic snapshot.</p><div className="portal-stats"><article><span>Current GPA</span><b>{user.gpa.toFixed(2)}</b></article><article><span>Major</span><b>{user.major}</b></article><article><span>Courses</span><b>{data?.courses?.filter(c=>c.enrolled).length || 0}</b></article></div><section><h2>Announcements</h2>{data?.announcements?.map(a=><p className="announcement" key={a}>{a}</p>)}</section></PortalLayout> }
-function PortalLayout({ user, children }) { return <div className="portal"><aside><b>Student portal</b><NavLink to="/portal/dashboard">Overview</NavLink><NavLink to="/portal/courses">Courses</NavLink><NavLink to="/portal/profile">Profile</NavLink><NavLink to="/portal/assignments">Assignments</NavLink><NavLink to="/portal/financial-aid">Financial aid</NavLink></aside><main>{children}</main></div> }
-function Courses({user}) { if(!user)return <Navigate to="/login"/>; const [courses,setCourses]=useState([]),[reviews,setReviews]=useState([]),[chosen,setChosen]=useState(''),[comment,setComment]=useState(''); useEffect(()=>api.courses().then(c=>{setCourses(c);setChosen(c[0]?.id||'')}),[]); useEffect(()=>{if(chosen)api.reviews(chosen).then(setReviews)},[chosen]); async function review(e){e.preventDefault();await api.review(chosen,comment);setComment('');setReviews(await api.reviews(chosen))} return <PortalLayout user={user}><h1>Course catalog</h1><div className="course-layout"><div>{courses.map(c=><article className={chosen===c.id?'course selected':'course'} key={c.id} onClick={()=>setChosen(c.id)}><span>{c.code} · {c.credits} credits</span><h3>{c.title}</h3><p>{c.instructor}</p>{!c.enrolled&&<button onClick={async e=>{e.stopPropagation();await api.enroll(c.id);setCourses(await api.courses())}}>Enroll</button>}</article>)}</div><section className="reviews"><h2>Course discussion</h2><form onSubmit={review}><textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="Share a course review"/><button className="button">Post review</button></form>{reviews.map(r=><article key={r.id}><b>{r.user_name}</b>{/* Deliberate, isolated XSS bait required for the local demo. */}<p dangerouslySetInnerHTML={{__html:r.content}} /></article>)}</section></div></PortalLayout> }
-function Profile({user,onUpdate}) { if(!user)return <Navigate to="/login"/>; const [email,setEmail]=useState(user.email),[message,setMessage]=useState(''); async function save(e){e.preventDefault();const data=await api.updateEmail(email);onUpdate(data);setMessage('Email address updated.')} return <PortalLayout user={user}><h1>Profile</h1><form className="account" onSubmit={save}><label>College email<input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></label><button className="button">Save email</button>{message&&<p className="success">{message}</p>}</form></PortalLayout> }
-function Assignments({user}) { if(!user)return <Navigate to="/login"/>; const [result,setResult]=useState(null); async function upload(e){const file=e.target.files[0];if(file)setResult(await api.upload(file.name,await file.text()))} return <PortalLayout user={user}><h1>Assignments</h1><div className="upload"><h3>Submit coursework</h3><p>Upload a document for your instructor. Accepted files are archived with your course record.</p><input type="file" onChange={upload}/>{result&&<><p className="success">{result.filename} uploaded.</p><small>Available files: {result.directory_listing.join(', ')}</small></>}</div></PortalLayout> }
-function Financial({user}) { if(!user)return <Navigate to="/login"/>; return <PortalLayout user={user}><h1>Financial aid</h1><div className="aid"><span>2026–27 estimated award</span><b>$18,500</b><p>Your aid package includes a Crestwood Grant and Federal Direct Loan eligibility. Final awards are confirmed after FAFSA review.</p></div></PortalLayout> }
-function Admin({user}) { if(!user||user.role!=='admin')return <Navigate to="/portal/dashboard"/>; const [students,setStudents]=useState([]),[url,setUrl]=useState('https://crestwood.edu'),[host,setHost]=useState('localhost'),[result,setResult]=useState('');useEffect(()=>api.students().then(setStudents),[]);async function run(fn){try{setResult(JSON.stringify(await fn(),null,2))}catch(e){setResult(e.message)}}return <Page title="College administration" eyebrow="Staff workspace"><div className="admin"><h3>Student roster</h3><table><thead><tr><th>Name</th><th>ID</th><th>Major</th><th>GPA</th></tr></thead><tbody>{students.map(s=><tr key={s.id}><td>{s.name}</td><td>{s.student_id}</td><td>{s.major}</td><td>{s.gpa}</td></tr>)}</tbody></table><div className="admin-tools"><h3>IT service tools</h3><p className="muted">Internal diagnostics for approved staff. Results are simulated for this demonstration environment.</p><div className="tool-row"><input value={url} onChange={e=>setUrl(e.target.value)} aria-label="Preview URL"/><button className="button" onClick={()=>run(()=>api.fetchPreview(url))}>Fetch preview</button></div><div className="tool-row"><input value={host} onChange={e=>setHost(e.target.value)} aria-label="Ping host"/><button className="button" onClick={()=>run(()=>api.ping(host))}>Run ping</button></div><pre className="tool-result">{result||'Tool output will appear here.'}</pre></div></div></Page> }
-function Page({eyebrow,title,children}) { return <main className="page"><span className="kicker">{eyebrow}</span><h1 className="page-title">{title}</h1><div className="page-body">{children}</div></main> }
-export default function App(){ const [user,setUser]=useState(null);useEffect(()=>{if(getToken())api.me().then(setUser).catch(()=>setToken(''))},[]);async function refresh(){setUser(await api.me())}async function logout(){try{await api.logout()}finally{setToken('');setUser(null)}}return <><Header user={user} logout={logout}/><Routes><Route path="/" element={<Home/>}/><Route path="/about" element={<About/>}/><Route path="/academics" element={<Academics/>}/><Route path="/admissions" element={<Admissions/>}/><Route path="/campus-life" element={<Campus/>}/><Route path="/faculty" element={<Faculty/>}/><Route path="/developer-resources" element={<Developer/>}/><Route path="/login" element={<Login onLogin={refresh}/>}/><Route path="/register" element={<Login onLogin={refresh}/>}/><Route path="/portal/dashboard" element={<Portal user={user}/>}/><Route path="/portal/courses" element={<Courses user={user}/>}/><Route path="/portal/profile" element={<Profile user={user} onUpdate={setUser}/>}/><Route path="/portal/assignments" element={<Assignments user={user}/>}/><Route path="/portal/financial-aid" element={<Financial user={user}/>}/><Route path="/admin" element={<Admin user={user}/>}/></Routes><footer>© 2026 Crestwood College · Excellence in education and community</footer></> }
+function ProtectedPage({ user, sessionLoading, admin = false, children }) {
+  if (sessionLoading) {
+    return <main className="session-loading" id="main-content"><LoadingPanel message="Opening My Crestwood…" /></main>;
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (admin && user.role !== 'admin') return <Navigate to="/portal/dashboard" replace />;
+  return children;
+}
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const location = useLocation();
+
+  const refreshSession = useCallback(async () => {
+    if (!getToken()) {
+      setUser(null);
+      setSessionLoading(false);
+      return null;
+    }
+    try {
+      const nextUser = await api.me();
+      setUser(nextUser);
+      return nextUser;
+    } catch (error) {
+      setToken('');
+      setUser(null);
+      throw error;
+    } finally {
+      setSessionLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSession().catch(() => {});
+  }, [refreshSession]);
+
+  async function authenticate(accessToken) {
+    setToken(accessToken);
+    setSessionLoading(true);
+    return refreshSession();
+  }
+
+  async function logout() {
+    try {
+      await api.logout();
+    } catch (_) {
+      // Local sign-out must still complete if the acknowledgement endpoint is offline.
+    } finally {
+      setToken('');
+      setUser(null);
+    }
+  }
+
+  const applicationRoute = location.pathname.startsWith('/portal/')
+    || location.pathname === '/admin'
+    || location.pathname === '/login'
+    || location.pathname === '/register';
+
+  return (
+    <div className="site-app">
+      <ScrollToTop />
+      <SiteHeader user={user} onLogout={logout} />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/academics" element={<AcademicsPage />} />
+        <Route path="/admissions" element={<AdmissionsPage />} />
+        <Route path="/campus-life" element={<CampusLifePage />} />
+        <Route path="/faculty" element={<FacultyPage />} />
+        <Route path="/developer-resources" element={<DeveloperResourcesPage />} />
+        <Route path="/login" element={<AuthPage user={user} onAuthenticated={authenticate} initialMode="login" />} />
+        <Route path="/register" element={<AuthPage user={user} onAuthenticated={authenticate} initialMode="register" />} />
+
+        <Route path="/portal/dashboard" element={<ProtectedPage user={user} sessionLoading={sessionLoading}><PortalDashboard user={user} /></ProtectedPage>} />
+        <Route path="/portal/courses" element={<ProtectedPage user={user} sessionLoading={sessionLoading}><PortalCourses user={user} /></ProtectedPage>} />
+        <Route path="/portal/resources" element={<ProtectedPage user={user} sessionLoading={sessionLoading}><PortalResources user={user} /></ProtectedPage>} />
+        <Route path="/portal/assignments" element={<ProtectedPage user={user} sessionLoading={sessionLoading}><PortalAssignments user={user} /></ProtectedPage>} />
+        <Route path="/portal/financial-aid" element={<ProtectedPage user={user} sessionLoading={sessionLoading}><PortalFinancialAid user={user} /></ProtectedPage>} />
+        <Route path="/portal/profile" element={<ProtectedPage user={user} sessionLoading={sessionLoading}><PortalProfile user={user} onUserUpdate={setUser} /></ProtectedPage>} />
+        <Route path="/admin" element={<ProtectedPage user={user} sessionLoading={sessionLoading} admin><AdminPage user={user} /></ProtectedPage>} />
+
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+      {!applicationRoute && <SiteFooter />}
+    </div>
+  );
+}

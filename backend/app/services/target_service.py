@@ -44,10 +44,11 @@ def _org_id() -> str:
 
 def log_activity(db: Session, org_id: str, description: str, endpoint: str, request: Request | None = None):
     ip = request.client.host if request and request.client else "127.0.0.1"
+    is_simulation = bool(request and request.headers.get("x-simulation-id"))
     db.add(
         SiteActivity(
             organization_id=org_id,
-            event_type="normal",
+            event_type="simulation" if is_simulation else "normal",
             description=description,
             endpoint=endpoint,
             source_ip=ip,
@@ -56,8 +57,26 @@ def log_activity(db: Session, org_id: str, description: str, endpoint: str, requ
     db.commit()
 
 
-def _trigger_honeytoken(db: Session, honeytoken_id: str, request: Request, endpoint: str):
+def _trigger_honeytoken(
+    db: Session,
+    honeytoken_id: str,
+    request: Request,
+    endpoint: str,
+    attack_type_hint: str = "",
+    artifacts: list[dict] | None = None,
+):
     from app.schemas.telemetry import TelemetryEventRequest
+    from app.models.telemetry import TelemetryEvent
+
+    simulation_id = request.headers.get("x-simulation-id", "")
+    if simulation_id and attack_type_hint:
+        recent_events = db.query(TelemetryEvent).order_by(TelemetryEvent.timestamp.desc()).limit(100).all()
+        if any(
+            (event.raw_metadata or {}).get("simulation_id") == simulation_id
+            and (event.raw_metadata or {}).get("attack_type_hint") == attack_type_hint
+            for event in recent_events
+        ):
+            return
 
     telemetry_service.record_event(
         db,
@@ -68,12 +87,78 @@ def _trigger_honeytoken(db: Session, honeytoken_id: str, request: Request, endpo
             endpoint=endpoint,
             http_method=request.method,
             session_id=request.headers.get("x-session-id", ""),
-            raw_metadata={"target_site": True, "event_type": "alert"},
+            raw_metadata={
+                "target_site": True,
+                "event_type": "alert",
+                "attack_type_hint": attack_type_hint,
+                "simulation_id": simulation_id,
+                "deception_response": [
+                    "honeytoken_triggered",
+                    "adaptive_honeypot_deployed",
+                ],
+                "artifacts": artifacts or [],
+                "data_classification": "synthetic_decoy_only",
+            },
         ),
     )
 
 
+def record_request_anomaly(
+    db: Session,
+    org_id: str,
+    request: Request,
+    attack_type_hint: str,
+    placement_hint: str,
+    artifacts: list[dict] | None = None,
+) -> bool:
+    """Record a safe, signature-only attack demo without touching real data."""
+    honeytoken = (
+        db.query(Honeytoken)
+        .filter(
+            Honeytoken.organization_id == org_id,
+            Honeytoken.placement_path.contains(placement_hint),
+        )
+        .first()
+    )
+    if not honeytoken:
+        return False
+    _trigger_honeytoken(
+        db,
+        honeytoken.id,
+        request,
+        request.url.path,
+        attack_type_hint,
+        artifacts,
+    )
+    return True
+
+
 def register(db: Session, org_id: str, data: TargetRegisterRequest, request: Request) -> TargetTokenResponse:
+    if data.role and data.role.lower() != "student":
+        # Treat privilege-bearing registration input as a bounded mass-
+        # assignment exercise. It produces telemetry and a non-persisted,
+        # student-scoped token, never an organization account.
+        ht = (
+            db.query(Honeytoken)
+            .filter(
+                Honeytoken.organization_id == org_id,
+                Honeytoken.placement_path.contains("api_abuse"),
+            )
+            .first()
+        )
+        if ht:
+            _trigger_honeytoken(
+                db,
+                ht.id,
+                request,
+                "/target/auth/register",
+                "API Abuse",
+                [{"name": "role", "value": data.role, "classification": "rejected_input"}],
+            )
+        token = create_access_token(
+            {"sub": "simulated_mass_assignment", "type": "target", "role": "student", "org_id": org_id}
+        )
+        return TargetTokenResponse(access_token=token)
     if db.query(TargetUser).filter(TargetUser.email == data.email).first():
         raise AppError("Email already registered", 400)
     count = db.query(TargetUser).filter(TargetUser.organization_id == org_id, TargetUser.is_honeytoken == False).count()  # noqa: E712
@@ -100,7 +185,16 @@ def login(db: Session, org_id: str, data: TargetLoginRequest, request: Request) 
     if user and verify_password(data.password, user.hashed_password):
         log_activity(db, org_id, f"Login: {data.email}", "/target/auth/login", request)
         if user.is_honeytoken and user.honeytoken_id:
-            _trigger_honeytoken(db, user.honeytoken_id, request, "/target/auth/login")
+            user_token = db.query(Honeytoken).filter(Honeytoken.id == user.honeytoken_id).first()
+            if not user_token or "session" not in user_token.placement_path:
+                _trigger_honeytoken(
+                    db,
+                    user.honeytoken_id,
+                    request,
+                    "/target/auth/login",
+                    "Broken Auth",
+                    [{"name": "decoy_session", "value": "cw_demo_session_redacted", "classification": "synthetic"}],
+                )
         token = create_access_token({"sub": user.id, "type": "target", "role": user.role, "org_id": org_id})
         return TargetTokenResponse(access_token=token)
 
@@ -112,7 +206,24 @@ def login(db: Session, org_id: str, data: TargetLoginRequest, request: Request) 
     if ht and ":" in ht.fake_value:
         leaked_email, leaked_pass = ht.fake_value.split(":", 1)
         if data.email == leaked_email and data.password == leaked_pass:
-            _trigger_honeytoken(db, ht.id, request, "/target/auth/login")
+            _trigger_honeytoken(
+                db,
+                ht.id,
+                request,
+                "/target/auth/login",
+                "Broken Auth",
+                [{"name": "credential", "value": leaked_email, "classification": "honeytoken"}],
+            )
+            token = create_access_token(
+                {
+                    "sub": "simulated_backup_identity",
+                    "type": "target",
+                    "role": "decoy",
+                    "org_id": org_id,
+                    "data_scope": "synthetic_decoy_only",
+                }
+            )
+            return TargetTokenResponse(access_token=token)
     raise UnauthorizedError("Invalid credentials")
 
 
@@ -167,9 +278,8 @@ def add_review(db: Session, org_id: str, user_id: str, course_id: str, data: Rev
     db.commit()
     db.refresh(review)
     log_activity(db, org_id, f"Course review posted on {course_id}", f"/target/courses/{course_id}/review", request)
-    ht = db.query(Honeytoken).filter(Honeytoken.organization_id == org_id, Honeytoken.placement_path.contains("xss")).first()
-    if ht and ("<script" in data.content.lower() or "onerror" in data.content.lower()):
-        _trigger_honeytoken(db, ht.id, request, f"/target/courses/{course_id}/review")
+    # Storing inert review text is not the detection boundary. The controlled
+    # telemetry beacon is what confirms the simulated payload was rendered.
     return ReviewResponse(
         id=review.id,
         course_id=course_id,
@@ -196,15 +306,41 @@ def get_reviews(db: Session, course_id: str) -> list[ReviewResponse]:
     return result
 
 
-def get_student(db: Session, org_id: str, student_id: str, request: Request) -> StudentRecordResponse:
-    user = db.query(TargetUser).filter(TargetUser.organization_id == org_id, TargetUser.id == student_id).first()
-    if not user:
+def get_student(
+    db: Session,
+    org_id: str,
+    student_id: str,
+    request: Request,
+    requester: TargetUser,
+) -> StudentRecordResponse:
+    numeric_candidate = student_id
+    for prefix in ("CW-", "CW_"):
+        if numeric_candidate.upper().startswith(prefix):
+            numeric_candidate = numeric_candidate[len(prefix):]
+            break
+    reserved_decoy_request = bool(
+        numeric_candidate.isdigit() and int(numeric_candidate) >= 9000
+    )
+
+    # A simulation may enumerate only the explicitly reserved ghost range. It
+    # cannot use a known UUID to promote a real TargetUser into its output.
+    if request.headers.get("x-simulation-id") and not reserved_decoy_request:
+        raise NotFoundError("Student not found")
+
+    if reserved_decoy_request:
         ghost = db.query(TargetUser).filter(
             TargetUser.organization_id == org_id,
-            TargetUser.is_honeytoken == True,  # noqa: E712
+            TargetUser.student_id == "CW-GHOST-99999",
         ).first()
         if ghost:
-            _trigger_honeytoken(db, ghost.honeytoken_id, request, f"/target/students/{student_id}")
+            _trigger_honeytoken(
+                db,
+                ghost.honeytoken_id,
+                request,
+                f"/target/students/{student_id}",
+                "IDOR",
+                [{"name": "student_record", "value": ghost.student_id, "classification": "synthetic_decoy"}],
+            )
             return StudentRecordResponse(
                 id=ghost.id,
                 name=ghost.name,
@@ -215,13 +351,25 @@ def get_student(db: Session, org_id: str, student_id: str, request: Request) -> 
                 role=ghost.role,
             )
         raise NotFoundError("Student not found")
+
+    user = db.query(TargetUser).filter(
+        TargetUser.organization_id == org_id,
+        TargetUser.id == student_id,
+    ).first()
+    if not user:
+        raise NotFoundError("Student not found")
+    if requester.role != "admin" and requester.id != user.id:
+        raise AppError("Student access denied", 403)
     return StudentRecordResponse.model_validate(user)
 
 
 def list_documents(db: Session, org_id: str, user: TargetUser) -> list[DocumentResponse]:
     q = db.query(Document).filter(Document.organization_id == org_id)
     if user.role != "admin":
-        q = q.filter((Document.owner_id == user.id) | (Document.owner_id.is_(None)))
+        q = q.filter(
+            Document.is_honeytoken == False,  # noqa: E712
+            (Document.owner_id == user.id) | (Document.owner_id.is_(None)),
+        )
     docs = q.all()
     return [DocumentResponse.model_validate(d) for d in docs]
 
@@ -230,8 +378,17 @@ def get_document(db: Session, org_id: str, doc_id: str, request: Request, user: 
     doc = db.query(Document).filter(Document.id == doc_id, Document.organization_id == org_id).first()
     if not doc:
         raise NotFoundError("Document not found")
+    if user.role != "admin" and (doc.is_honeytoken or (doc.owner_id and doc.owner_id != user.id)):
+        raise AppError("Document access denied", 403)
     if doc.is_honeytoken and doc.honeytoken_id:
-        _trigger_honeytoken(db, doc.honeytoken_id, request, f"/target/documents/{doc_id}")
+        _trigger_honeytoken(
+            db,
+            doc.honeytoken_id,
+            request,
+            f"/target/documents/{doc_id}",
+            "File Upload",
+            [{"name": doc.title, "value": doc.content[:160], "classification": "synthetic_decoy"}],
+        )
     log_activity(db, org_id, f"Document accessed: {doc.title}", f"/target/documents/{doc_id}", request)
     return DocumentDetailResponse.model_validate(doc)
 
@@ -263,8 +420,15 @@ def update_profile(db: Session, org_id: str, user_id: str, data: ProfileUpdateRe
     db.refresh(user)
     log_activity(db, org_id, f"Profile updated: {user.email}", "/target/profile/update", request)
     ht = db.query(Honeytoken).filter(Honeytoken.organization_id == org_id, Honeytoken.placement_path.contains("csrf")).first()
-    if ht:
-        _trigger_honeytoken(db, ht.id, request, "/target/profile/update")
+    if ht and not request.headers.get("x-csrf-token"):
+        _trigger_honeytoken(
+            db,
+            ht.id,
+            request,
+            "/target/profile/update",
+            "CSRF",
+            [{"name": "profile_email", "value": data.email or user.email, "classification": "simulated_mutation"}],
+        )
     return TargetUserResponse.model_validate(user)
 
 

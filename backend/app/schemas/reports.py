@@ -33,8 +33,18 @@ class ActivityItem(BaseModel):
     timestamp: datetime
 
 
+class DeceptionResponseStatus(BaseModel):
+    honeytoken_state: str
+    honeypot_state: str
+    response_stage: str
+    last_incident_id: str | None = None
+    deployment_id: str | None = None
+    message: str
+
+
 class DashboardStatus(BaseModel):
     state: str
     open_incidents: int
     recent_activity: list[ActivityItem]
     summary: DashboardSummary
+    deception_response: DeceptionResponseStatus

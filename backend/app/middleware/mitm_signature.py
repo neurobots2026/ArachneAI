@@ -20,7 +20,21 @@ class MitmSignatureMiddleware(BaseHTTPMiddleware):
             try:
                 org = db.query(Organization).first()
                 if org:
-                    record_request_anomaly(db, org.id, request, "mitm", "mitm_signature")
+                    record_request_anomaly(
+                        db,
+                        org.id,
+                        request,
+                        "MITM",
+                        "mitm",
+                        [{
+                            "name": "connection_signature",
+                            "value": {
+                                "forwarded_chain": forwarded,
+                                "fingerprint": fingerprint,
+                            },
+                            "classification": "simulated_network_metadata",
+                        }],
+                    )
             finally:
                 db.close()
         return response

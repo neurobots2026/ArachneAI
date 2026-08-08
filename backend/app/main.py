@@ -10,6 +10,7 @@ from app.core.exceptions import AppError
 from app.database.session import init_db
 from app.middleware.error_handler import app_error_handler, unhandled_error_handler
 from app.middleware.logging import LoggingMiddleware, RequestIdMiddleware
+from app.middleware.mitm_signature import MitmSignatureMiddleware
 from app.routers import (
     ai,
     auth,
@@ -38,18 +39,80 @@ def _seed_if_empty() -> None:
     from app.models.honeytoken import Honeytoken
     from app.models.organization import Organization
     from app.models.user import User
-    from app.models.target import Course, Document, TargetUser
+    from app.models.target import Course, Document, SiteActivity, TargetUser
 
     db = SessionLocal()
     try:
-        org = db.query(Organization).first()
-        has_target_data = db.query(TargetUser).first() is not None
+        org = db.query(Organization).filter(Organization.name == "Crestwood College").first()
+        has_target_data = bool(
+            org and db.query(TargetUser).filter(TargetUser.organization_id == org.id).first()
+        )
         has_secops = db.query(User).filter(User.email == "secops@crestwood.edu").first() is not None
         if org and has_target_data:
             if not has_secops:
                 db.add(User(organization_id=org.id, email="secops@crestwood.edu",
                             hashed_password=hash_password("secops123"), role="admin"))
-                db.commit()
+            idor_token = db.query(Honeytoken).filter(
+                Honeytoken.organization_id == org.id,
+                Honeytoken.name == "Reserved Student Range",
+            ).first()
+            if not idor_token:
+                idor_token = Honeytoken(
+                    organization_id=org.id,
+                    type="record",
+                    name="Reserved Student Range",
+                    fake_value="CW-GHOST-99999",
+                    department="Academic Affairs",
+                    placement_path="/target/students/9000",
+                    created_by_ai_reasoning="Ghost student record reserved for object-enumeration detection.",
+                )
+                db.add(idor_token)
+                db.flush()
+            if not db.query(Honeytoken).filter(
+                Honeytoken.organization_id == org.id,
+                Honeytoken.name == "Internal Finance Metadata",
+            ).first():
+                db.add(Honeytoken(
+                    organization_id=org.id,
+                    type="cloud",
+                    name="Internal Finance Metadata",
+                    fake_value="AKIA-CRESTWOOD-DECOY-ONLY",
+                    department="Finance",
+                    placement_path="/target/internal/finance-api",
+                    created_by_ai_reasoning="Internal-only finance metadata bait for SSRF detection.",
+                ))
+            session_token = db.query(Honeytoken).filter(
+                Honeytoken.organization_id == org.id,
+                Honeytoken.name == "Session Reuse Bait",
+            ).first()
+            if session_token and not db.query(TargetUser).filter(
+                TargetUser.email == "session.demo@crestwood.internal"
+            ).first():
+                db.add(TargetUser(
+                    organization_id=org.id,
+                    email="session.demo@crestwood.internal",
+                    hashed_password=hash_password("SessionDemo2026!"),
+                    name="Session_Account",
+                    role="decoy",
+                    major="Simulation",
+                    student_id="CW-SESSION-9001",
+                    gpa=0.0,
+                    is_honeytoken=True,
+                    honeytoken_id=session_token.id,
+                ))
+            ghost = db.query(TargetUser).filter(
+                TargetUser.organization_id == org.id,
+                TargetUser.student_id == "CW-GHOST-99999",
+            ).first()
+            if ghost:
+                ghost.honeytoken_id = idor_token.id
+            if not db.query(SiteActivity).filter(SiteActivity.organization_id == org.id).first():
+                db.add_all([
+                    SiteActivity(organization_id=org.id, event_type="normal", description="Public programme catalog viewed", endpoint="/target/public/programs", source_ip="10.24.0.21"),
+                    SiteActivity(organization_id=org.id, event_type="normal", description="Student portal health check completed", endpoint="/target/portal/dashboard", source_ip="10.24.0.12"),
+                    SiteActivity(organization_id=org.id, event_type="normal", description="Course schedule synchronized", endpoint="/target/courses", source_ip="10.24.0.18"),
+                ])
+            db.commit()
             return
         if not org:
             org = Organization(
@@ -211,6 +274,24 @@ def _seed_if_empty() -> None:
                 placement_path="/target/api/api_abuse",
                 created_by_ai_reasoning="Mass registration with admin role field.",
             ),
+            Honeytoken(
+                organization_id=org.id,
+                type="record",
+                name="Reserved Student Range",
+                fake_value="CW-GHOST-99999",
+                department="Academic Affairs",
+                placement_path="/target/students/9000",
+                created_by_ai_reasoning="Ghost student record reserved for object-enumeration detection.",
+            ),
+            Honeytoken(
+                organization_id=org.id,
+                type="cloud",
+                name="Internal Finance Metadata",
+                fake_value="AKIA-CRESTWOOD-DECOY-ONLY",
+                department="Finance",
+                placement_path="/target/internal/finance-api",
+                created_by_ai_reasoning="Internal-only finance metadata bait for SSRF detection.",
+            ),
         ]
         db.add_all(tokens)
         db.flush()
@@ -246,6 +327,18 @@ def _seed_if_empty() -> None:
                 student_id="CW-ADMIN01",
                 gpa=0.0,
             ),
+            TargetUser(
+                organization_id=org.id,
+                email="session.demo@crestwood.internal",
+                hashed_password=hash_password("SessionDemo2026!"),
+                name="Session_Account",
+                role="decoy",
+                major="Simulation",
+                student_id="CW-SESSION-9001",
+                gpa=0.0,
+                is_honeytoken=True,
+                honeytoken_id=tokens[8].id,
+            ),
         ]
         db.add_all(students)
         db.flush()
@@ -260,7 +353,7 @@ def _seed_if_empty() -> None:
             student_id="CW-GHOST-99999",
             gpa=0.0,
             is_honeytoken=True,
-            honeytoken_id=tokens[0].id,
+            honeytoken_id=tokens[-2].id,
         )
         db.add(ghost)
 
@@ -322,6 +415,12 @@ def _seed_if_empty() -> None:
                 )
             )
 
+        db.add_all([
+            SiteActivity(organization_id=org.id, event_type="normal", description="Public programme catalog viewed", endpoint="/target/public/programs", source_ip="10.24.0.21"),
+            SiteActivity(organization_id=org.id, event_type="normal", description="Student portal health check completed", endpoint="/target/portal/dashboard", source_ip="10.24.0.12"),
+            SiteActivity(organization_id=org.id, event_type="normal", description="Course schedule synchronized", endpoint="/target/courses", source_ip="10.24.0.18"),
+        ])
+
         db.commit()
         # v3 consumes honeytokens directly through the target router; no
         # standalone target-app deployment callback is needed.
@@ -351,6 +450,7 @@ else:
     )
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(LoggingMiddleware)
+app.add_middleware(MitmSignatureMiddleware)
 
 app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)

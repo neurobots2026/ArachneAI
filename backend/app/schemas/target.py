@@ -8,6 +8,7 @@ class TargetRegisterRequest(BaseModel):
     password: str
     name: str
     major: str = "Undeclared"
+    role: str | None = None
 
 
 class TargetLoginRequest(BaseModel):

@@ -22,9 +22,25 @@ async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || res.statusText);
+    const detail = Array.isArray(err.detail)
+      ? err.detail.map((item) => item.msg).filter(Boolean).join(', ')
+      : err.detail;
+    throw new Error(err.error || detail || res.statusText);
   }
   return res.json();
+}
+
+async function download(path) {
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API_URL}${path}`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.detail || res.statusText);
+  }
+  const disposition = res.headers.get('content-disposition') || '';
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || 'incident-report';
+  return { blob: await res.blob(), filename };
 }
 
 export const api = {
@@ -34,6 +50,7 @@ export const api = {
   summary: () => request('/api/v1/dashboard/summary'),
   threats: () => request('/api/v1/dashboard/threats'),
   activity: () => request('/api/v1/dashboard/activity'),
+  dashboardStatus: () => request('/api/v1/dashboard/status'),
   honeytokens: () => request('/api/v1/honeytokens'),
   incidents: () => request('/api/v1/incidents'),
   incident: (id) => request(`/api/v1/incidents/${id}`),
@@ -47,6 +64,5 @@ export const api = {
     }),
   generateReport: (incidentId) =>
     request(`/api/v1/reports/generate/${incidentId}`, { method: 'POST' }),
-  startSimulation: (scenario_name) =>
-    request('/api/v1/simulation/start', { method: 'POST', body: JSON.stringify({ scenario_name }) }),
+  downloadReport: (reportId) => download(`/api/v1/reports/${reportId}/download`),
 };

@@ -12,6 +12,7 @@ from graph import run_investigation  # noqa: E402
 from app.core.exceptions import NotFoundError
 from app.models.ai_investigation import AIInvestigation
 from app.models.honeytoken import Honeytoken
+from app.models.honeypot import HoneypotDeployment
 from app.models.incident import Incident
 from app.models.recommendation import Recommendation
 from app.models.telemetry import TelemetryEvent
@@ -33,6 +34,20 @@ def create_incident_from_event(db: Session, event: TelemetryEvent) -> Incident:
     db.add(incident)
     db.commit()
     db.refresh(incident)
+
+    metadata = event.raw_metadata or {}
+    if "adaptive_honeypot_deployed" in metadata.get("deception_response", []):
+        db.add(
+            HoneypotDeployment(
+                organization_id=honeytoken.organization_id,
+                incident_id=incident.id,
+                simulation_id=metadata.get("simulation_id", ""),
+                attack_type=metadata.get("attack_type_hint", "Unknown"),
+                state="deployed",
+                target_zone=event.endpoint,
+            )
+        )
+        db.commit()
 
     from app.services import ai_service
 
@@ -80,6 +95,12 @@ def approve_recommendation(
     if incident and approved:
         incident.status = "contained"
         incident.updated_at = utc_now()
+        deployments = db.query(HoneypotDeployment).filter(
+            HoneypotDeployment.incident_id == incident.id
+        ).all()
+        for deployment in deployments:
+            deployment.state = "monitoring"
+            deployment.updated_at = utc_now()
     db.commit()
     db.refresh(rec)
     return RecommendationResponse.model_validate(rec)

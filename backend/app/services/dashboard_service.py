@@ -4,10 +4,17 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.honeytoken import Honeytoken
+from app.models.honeypot import HoneypotDeployment
 from app.models.incident import Incident
 from app.models.target import SiteActivity
 from app.models.telemetry import TelemetryEvent
-from app.schemas.reports import ActivityItem, DashboardStatus, DashboardSummary, ThreatItem
+from app.schemas.reports import (
+    ActivityItem,
+    DashboardStatus,
+    DashboardSummary,
+    DeceptionResponseStatus,
+    ThreatItem,
+)
 from app.utils.helpers import utc_now
 
 
@@ -71,7 +78,7 @@ def get_activity(db: Session, org_id: str, limit: int = 20) -> list[ActivityItem
         items.append(
             ActivityItem(
                 id=e.id,
-                type="normal",
+                type=e.event_type or "normal",
                 description=e.description,
                 timestamp=e.created_at,
             )
@@ -129,19 +136,78 @@ def get_status(db: Session, org_id: str) -> DashboardStatus:
         .filter(Incident.organization_id == org_id, Incident.status == "contained")
         .count()
     )
+    latest_incident = (
+        db.query(Incident)
+        .filter(Incident.organization_id == org_id)
+        .order_by(Incident.created_at.desc())
+        .first()
+    )
+    latest_deployment = (
+        db.query(HoneypotDeployment)
+        .filter(HoneypotDeployment.organization_id == org_id)
+        .order_by(HoneypotDeployment.deployed_at.desc())
+        .first()
+    )
+    latest_open = max(open_incidents, key=lambda item: item.created_at) if open_incidents else None
+    comparison_now = utc_now()
+    if latest_open and latest_open.created_at and latest_open.created_at.tzinfo is None:
+        comparison_now = comparison_now.replace(tzinfo=None)
+    latest_age_seconds = (
+        (comparison_now - latest_open.created_at).total_seconds()
+        if latest_open and latest_open.created_at
+        else None
+    )
     if not open_incidents and contained > 0:
         state = "contained"
-    elif any(i.status == "investigating" for i in open_incidents):
+    elif latest_age_seconds is not None and latest_age_seconds < 6:
+        state = "alert"
+    elif latest_age_seconds is not None and latest_age_seconds < 12:
         state = "investigating"
     elif any(i.risk_score >= 0.7 for i in open_incidents):
         state = "critical"
+    elif any(i.status == "investigating" for i in open_incidents):
+        state = "investigating"
     elif open_incidents:
         state = "investigating"
     else:
         state = "normal"
+
+    if state == "normal":
+        deception_response = DeceptionResponseStatus(
+            honeytoken_state="armed",
+            honeypot_state="standby",
+            response_stage="monitoring",
+            last_incident_id=None,
+            deployment_id=None,
+            message="Normal organization activity is being monitored; deception assets are armed.",
+        )
+    elif state == "contained":
+        deception_response = DeceptionResponseStatus(
+            honeytoken_state="rotated",
+            honeypot_state="deployed",
+            response_stage="contained",
+            last_incident_id=latest_incident.id if latest_incident else None,
+            deployment_id=latest_deployment.id if latest_deployment else None,
+            message="The decoy interaction is contained; the adaptive honeypot remains under observation.",
+        )
+    else:
+        response_stage = {
+            "alert": "alert",
+            "investigating": "investigating",
+            "critical": "responding",
+        }.get(state, "responding")
+        deception_response = DeceptionResponseStatus(
+            honeytoken_state="triggered",
+            honeypot_state="deployed",
+            response_stage=response_stage,
+            last_incident_id=latest_incident.id if latest_incident else None,
+            deployment_id=latest_deployment.id if latest_deployment else None,
+            message="A honeytoken fired and the adaptive honeypot was deployed around the attacker session.",
+        )
     return DashboardStatus(
         state=state,
         open_incidents=len(open_incidents),
         recent_activity=recent_activity,
         summary=summary,
+        deception_response=deception_response,
     )
